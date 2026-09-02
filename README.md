@@ -1,1 +1,3 @@
-# isucon
+# ISUCON2026
+
+- ISUCON2026のリポジトリです。
