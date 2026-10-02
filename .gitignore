@@ -1,0 +1,4 @@
+.DS_Store
+
+# go-task のビルドチェックサムキャッシュ
+isucon14/.task/
