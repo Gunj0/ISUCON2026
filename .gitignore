@@ -2,3 +2,7 @@
 
 # go-task のビルドチェックサムキャッシュ
 isucon14/.task/
+
+# 計測で生成されるログとレポート
+FStudent/measure/logs/*
+!FStudent/measure/logs/.gitkeep

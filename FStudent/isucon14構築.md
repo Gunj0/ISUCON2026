@@ -511,5 +511,6 @@ task run-local -- -s --payment-bind-port 12346 --payment-url http://localhost:12
 
 ## リンク
 
+- [計測と改善ログ](計測と改善ログ.md) — ボトルネックの計測方法とスコア推移
 - [ISUCON14 問題（本家リポジトリ）](https://github.com/isucon/isucon14)
 - [isucon14/README.md](../isucon14/README.md)
