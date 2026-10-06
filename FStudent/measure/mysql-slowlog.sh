@@ -6,10 +6,11 @@
 # その代わりコンテナを作り直すと既定値(記録オフ)に戻る。
 #
 # 使い方:
-#   ./mysql-slowlog.sh on      全クエリを記録する状態にし、ログを空にする
-#   ./mysql-slowlog.sh off     記録を止める
-#   ./mysql-slowlog.sh report  ログを取り出して pt-query-digest で集計する
-#   ./mysql-slowlog.sh status  現在の設定を表示する
+#   ./mysql-slowlog.sh on       全クエリを記録する状態にし、ログを空にする
+#   ./mysql-slowlog.sh off      記録を止める
+#   ./mysql-slowlog.sh report   ログを取り出して pt-query-digest で集計する
+#   ./mysql-slowlog.sh sql N    N位のクエリの詳細(SQL と読んだ行数)を表示する
+#   ./mysql-slowlog.sh status   現在の設定を表示する
 #
 set -euo pipefail
 
@@ -26,10 +27,24 @@ mysql_exec() {
   docker exec -e MYSQL_PWD=isucon "$DB_CONTAINER" mysql -uroot -N -e "$1"
 }
 
+# レポートの "# Query N:" ブロックから SQL 本体を取り出す。
+# ブロック内でコメント(#)でない行が SQL なので、それを連結する。
+extract_sql() {
+  awk '
+    /^# Query [0-9]+:/ { match($0, /Query [0-9]+/); n = substr($0, RSTART + 6, RLENGTH - 6); next }
+    n == "" { next }
+    /^#/ { next }
+    { gsub(/\\G$/, ""); sql[n] = sql[n] $0 " " }
+    END { for (i = 1; i <= 100; i++) if (i in sql) printf "%s\t%s\n", i, sql[i] }
+  ' "$1"
+}
+
 case "${1:-}" in
   on)
     mysql_exec "SET GLOBAL slow_query_log = OFF"
     docker exec -u root "$DB_CONTAINER" rm -f "$SLOW_LOG_IN_CONTAINER"
+    # 60秒の走行で数百MBになるため、前回のログは消しておく
+    rm -f "$LOG_DIR/slow.log"
     mysql_exec "SET GLOBAL slow_query_log_file = '$SLOW_LOG_IN_CONTAINER';
                 SET GLOBAL long_query_time = 0;
                 SET GLOBAL log_queries_not_using_indexes = OFF;
@@ -52,8 +67,35 @@ case "${1:-}" in
     pt-query-digest --limit "$LIMIT" "$LOG_DIR/slow.log" > "$LOG_DIR/slow-digest.txt"
     echo "==> $LOG_DIR/slow-digest.txt に保存しました"
     echo
-    # Profile 節(クエリごとの集計表)だけを抜き出して表示する
+    # Profile 節(クエリごとの集計表)を表示する
     sed -n '/^# Profile/,/^# Query 1/p' "$LOG_DIR/slow-digest.txt" | sed '$d'
+    # 順位と実際の SQL の対応を並べる。ID は照合しなくて済む。
+    echo "# 各順位のクエリ"
+    echo "# ===="
+    extract_sql "$LOG_DIR/slow-digest.txt" | while IFS=$'\t' read -r rank sql; do
+      printf '# %3s %s\n' "$rank" "$(echo "$sql" | cut -c1-150)"
+    done
+    echo
+    echo "詳細(読んだ行数など)は ./mysql-slowlog.sh sql <順位> で見られます。"
+    ;;
+
+  sql)
+    rank="${2:-}"
+    if [ -z "$rank" ]; then
+      echo "エラー: 順位を指定してください。例: ./mysql-slowlog.sh sql 2" >&2
+      exit 1
+    fi
+    if [ ! -f "$LOG_DIR/slow-digest.txt" ]; then
+      echo "エラー: レポートがありません。先に ./mysql-slowlog.sh report を実行してください。" >&2
+      exit 1
+    fi
+    awk -v want="$rank" '
+      /^# Query [0-9]+:/ {
+        match($0, /Query [0-9]+/)
+        found = (substr($0, RSTART + 6, RLENGTH - 6) + 0 == want + 0)
+      }
+      found
+    ' "$LOG_DIR/slow-digest.txt"
     ;;
 
   status)
